@@ -45,6 +45,28 @@ jobs:
       - name: Clone TensorFlow
         run: git clone --depth 1 --branch v2.18.0 https://github.com/tensorflow/tensorflow.git
 
+      - name: Configure TensorFlow
+        run: |
+          cd tensorflow
+          export ANDROID_SDK_HOME=$ANDROID_HOME
+          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653
+          
+          # Run configure with default settings
+          python3 configure.py << EOF
+          
+          
+          
+          
+          
+          
+          
+          
+          
+          
+          EOF
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+
       - name: Build TFLite AAR using official script
         run: |
           cd tensorflow
