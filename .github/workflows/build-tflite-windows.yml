@@ -30,7 +30,7 @@ jobs:
         cd tensorflow
         git checkout v2.18.0
         
-    - name: Initial CMake Configure (to download dependencies)
+    - name: First CMake Configure (download initial dependencies)
       shell: cmd
       continue-on-error: true
       run: |
@@ -46,17 +46,15 @@ jobs:
           -DTFLITE_ENABLE_XNNPACK=ON ^
           -DTFLITE_ENABLE_RUY=ON
     
-    - name: Patch All Dependency CMakeLists.txt Files
+    - name: First Patch Pass
       shell: powershell
       run: |
-        # Find all CMakeLists.txt files in downloaded dependencies
         $cmakeFiles = Get-ChildItem -Path "tensorflow\tensorflow\lite\c" -Recurse -Filter "CMakeLists.txt"
         
         foreach ($file in $cmakeFiles) {
           $content = Get-Content $file.FullName -Raw
           $modified = $false
           
-          # Replace old CMake version requirements
           if ($content -match 'CMAKE_MINIMUM_REQUIRED\s*\(\s*VERSION\s+2\.\d+') {
             $content = $content -replace 'CMAKE_MINIMUM_REQUIRED\s*\(\s*VERSION\s+2\.\d+\.\d+\s+FATAL_ERROR\s*\)', 'CMAKE_MINIMUM_REQUIRED(VERSION 3.5 FATAL_ERROR)'
             $content = $content -replace 'CMAKE_MINIMUM_REQUIRED\s*\(\s*VERSION\s+2\.\d+\.\d+\s*\)', 'CMAKE_MINIMUM_REQUIRED(VERSION 3.5)'
@@ -69,7 +67,41 @@ jobs:
           }
         }
         
-        Write-Host "Dependency patching complete"
+    - name: Second CMake Configure (download remaining dependencies)
+      shell: cmd
+      continue-on-error: true
+      run: |
+        cd tensorflow\tensorflow\lite\c\build
+        cmake .. -G "Ninja" ^
+          -DCMAKE_BUILD_TYPE=Release ^
+          -DBUILD_SHARED_LIBS=ON ^
+          -DTFLITE_ENABLE_GPU=OFF ^
+          -DTFLITE_ENABLE_NNAPI=OFF ^
+          -DTFLITE_ENABLE_XNNPACK=ON ^
+          -DTFLITE_ENABLE_RUY=ON
+    
+    - name: Second Patch Pass
+      shell: powershell
+      run: |
+        $cmakeFiles = Get-ChildItem -Path "tensorflow\tensorflow\lite\c" -Recurse -Filter "CMakeLists.txt"
+        
+        foreach ($file in $cmakeFiles) {
+          $content = Get-Content $file.FullName -Raw
+          $modified = $false
+          
+          if ($content -match 'CMAKE_MINIMUM_REQUIRED\s*\(\s*VERSION\s+2\.\d+') {
+            $content = $content -replace 'CMAKE_MINIMUM_REQUIRED\s*\(\s*VERSION\s+2\.\d+\.\d+\s+FATAL_ERROR\s*\)', 'CMAKE_MINIMUM_REQUIRED(VERSION 3.5 FATAL_ERROR)'
+            $content = $content -replace 'CMAKE_MINIMUM_REQUIRED\s*\(\s*VERSION\s+2\.\d+\.\d+\s*\)', 'CMAKE_MINIMUM_REQUIRED(VERSION 3.5)'
+            $modified = $true
+          }
+          
+          if ($modified) {
+            Set-Content $file.FullName -Value $content
+            Write-Host "Patched: $($file.FullName)"
+          }
+        }
+        
+        Write-Host "All dependency patching complete"
         
     - name: Clean Build Directory
       shell: powershell
@@ -82,7 +114,7 @@ jobs:
         New-Item -Path $buildPath -ItemType Directory -Force | Out-Null
         Write-Host "Created fresh build directory"
         
-    - name: Configure TFLite Build
+    - name: Final CMake Configure
       shell: cmd
       run: |
         cd tensorflow\tensorflow\lite\c\build
