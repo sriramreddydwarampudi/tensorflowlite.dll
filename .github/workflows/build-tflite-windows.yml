@@ -2,99 +2,75 @@ name: Build TFLite AAR and DLL
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 jobs:
-  # -------------------------------------------
-  #  ANDROID AAR BUILD (Linux + Bazel)
-  # -------------------------------------------
+  # ---------------------------------------------------------
+  # 1. ANDROID AAR BUILD
+  # ---------------------------------------------------------
   build-aar:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
-      - name: Install dependencies
+      - name: Install required packages
         run: |
           sudo apt update
-          sudo apt install -y python3 zip unzip build-essential openjdk-17-jdk
+          sudo apt install -y openjdk-17-jdk unzip zip python3
 
-      - name: Install Bazelisk
+      - name: Install Android SDK + NDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 34
+          ndk-version: 26.1.10909125
+          components: build-tools;34.0.0
+
+      - name: Download Bazelisk
         run: |
-          sudo wget https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 -O /usr/local/bin/bazel
-          sudo chmod +x /usr/local/bin/bazel
+          curl -L https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 \
+            -o /usr/local/bin/bazel
+          chmod +x /usr/local/bin/bazel
 
-      - name: Clone TensorFlow
-        run: git clone --depth 1 https://github.com/tensorflow/tensorflow.git
-
-      - name: Build TFLite AAR (CPU)
+      - name: Build TFLite AAR
         run: |
-          cd tensorflow
-          bazel build -c opt //tensorflow/lite/java:tensorflow-lite
+          bazel build -c opt \
+            --fat_apk_cpu=x86,x86_64,arm64-v8a,armeabi-v7a \
+            //tensorflow/lite/java:tensorflow-lite
 
-      - name: Build TFLite GPU AAR
-        run: |
-          cd tensorflow
-          bazel build -c opt //tensorflow/lite/java:tensorflow-lite-gpu
-
-      - name: Build Select TF Ops AAR
-        run: |
-          cd tensorflow
-          bazel build -c opt //tensorflow/lite/java:tensorflow-lite-select-tf-ops
-
-      - name: Upload AAR Files
+      - name: Upload AAR
         uses: actions/upload-artifact@v4
         with:
-          name: tflite-aar
-          path: tensorflow/bazel-bin/tensorflow/lite/java/*.aar
+          name: tensorflow-lite-aar
+          path: bazel-bin/tensorflow/lite/java/libtensorflow-lite.aar
 
-
-  # -------------------------------------------
-  #  WINDOWS DLL BUILD (MinGW + CMake + Ninja)
-  # -------------------------------------------
+  # ---------------------------------------------------------
+  # 2. WINDOWS DLL BUILD
+  # ---------------------------------------------------------
   build-dll:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
-      - name: Install tools
+      - name: Install MSYS2 (for make + gcc)
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          install: |
+            mingw-w64-x86_64-toolchain
+            make
+
+      - name: Install Bazel for Windows
         run: |
-          choco install ninja -y
-          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=1' -y
-          choco install mingw -y
+          choco install bazel --version=7.1.2
 
-      - name: Clone TensorFlow
-        run: git clone --depth 1 https://github.com/tensorflow/tensorflow.git
-
-      - name: Create build directory
-        run: mkdir tensorflow\tensorflow\lite\build
-
-      - name: Configure with CMake
+      - name: Build TensorFlow Lite DLL
+        shell: cmd
         run: |
-          cd tensorflow/tensorflow/lite/build
-          cmake .. ^
-            -DCMAKE_SYSTEM_NAME=Windows ^
-            -DCMAKE_C_COMPILER="C:/ProgramData/chocolatey/lib/mingw/tools/install/mingw64/bin/gcc.exe" ^
-            -DCMAKE_CXX_COMPILER="C:/ProgramData/chocolatey/lib/mingw/tools/install/mingw64/bin/g++.exe" ^
-            -DTFLITE_ENABLE_XNNPACK=ON ^
-            -DTFLITE_ENABLE_C_API=ON ^
-            -DCMAKE_BUILD_TYPE=Release ^
-            -G Ninja
-
-      - name: Build TFLite DLL
-        run: |
-          cd tensorflow/tensorflow/lite/build
-          ninja
+          bazel build -c opt //tensorflow/lite:tensorflowlite.dll
 
       - name: Upload DLL
         uses: actions/upload-artifact@v4
         with:
-          name: tflite-windows-dll
-          path: |
-            tensorflow/tensorflow/lite/build/*.dll
-            tensorflow/tensorflow/lite/build/*.lib
-            tensorflow/tensorflow/lite/build/*.a
+          name: tensorflow-lite-dll
+          path: bazel-bin/tensorflow/lite/tensorflowlite.dll
