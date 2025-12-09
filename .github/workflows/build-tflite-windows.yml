@@ -1,4 +1,4 @@
-name: Build TFLite AAR and DLL
+name: Build TensorFlow Lite C DLL
 
 on:
   workflow_dispatch:
@@ -6,219 +6,126 @@ on:
     branches: [ main ]
 
 jobs:
-  build-aar:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y python3 zip unzip build-essential
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-      
-      - name: Install Android NDK and Build Tools
-        run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager --install "ndk;25.2.9519653"
-          sdkmanager --install "build-tools;34.0.0"
-          sdkmanager --install "platforms;android-34"
-
-      - name: Install Bazelisk
-        run: |
-          sudo wget https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 -O /usr/local/bin/bazel
-          sudo chmod +x /usr/local/bin/bazel
-
-      - name: Clone TensorFlow
-        run: git clone --depth 1 --branch v2.18.0 https://github.com/tensorflow/tensorflow.git
-
-      - name: Configure TensorFlow for Android
-        run: |
-          cd tensorflow
-          export ANDROID_SDK_HOME=$ANDROID_HOME
-          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653
-
-          python3 configure.py << EOF
-n
-n
-n
-n
-n
-n
-y
-$ANDROID_NDK_HOME
-21
-EOF
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
-
-      - name: Build TFLite AAR
-        run: |
-          cd tensorflow
-          export ANDROID_SDK_HOME=$ANDROID_HOME
-          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653
-
-          bash tensorflow/lite/tools/build_aar.sh \
-            --target_archs=x86,x86_64,arm64-v8a,armeabi-v7a
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
-
-      - name: Find built AAR files
-        run: find tensorflow -name "*.aar" -type f
-
-      - name: Upload AAR Files
-        uses: actions/upload-artifact@v4
-        with:
-          name: tflite-aar
-          path: tensorflow/**/*.aar
-        if: always()
-
-
-  # Windows DLL and CMake build unchanged below
-  # (keeping as-is)
-  build-aar-cmake:
-    runs-on: ubuntu-latest
-    if: always()
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y cmake ninja-build
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-      
-      - name: Install Android NDK
-        run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager --install "ndk;25.2.9519653"
-
-      - name: Clone TensorFlow
-        run: git clone --depth 1 --branch v2.18.0 https://github.com/tensorflow/tensorflow.git
-
-      - name: Build TFLite with CMake for Android
-        run: |
-          cd tensorflow
-          
-          mkdir -p build_android_arm64
-          cd build_android_arm64
-          
-          cmake ../tensorflow/lite \
-            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_HOME/ndk/25.2.9519653/build/cmake/android.toolchain.cmake \
-            -DANDROID_ABI=arm64-v8a \
-            -DANDROID_PLATFORM=android-21 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DTFLITE_ENABLE_XNNPACK=ON \
-            -GNinja
-          
-          ninja
-          
-          cd ..
-          
-          mkdir -p build_android_armv7
-          cd build_android_armv7
-          
-          cmake ../tensorflow/lite \
-            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_HOME/ndk/25.2.9519653/build/cmake/android.toolchain.cmake \
-            -DANDROID_ABI=armeabi-v7a \
-            -DANDROID_PLATFORM=android-21 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DTFLITE_ENABLE_XNNPACK=ON \
-            -GNinja
-          
-          ninja
-
-      - name: List built files
-        run: |
-          find tensorflow/build_android_* -name "*.so" -o -name "*.a"
-
-      - name: Upload Android Libraries
-        uses: actions/upload-artifact@v4
-        with:
-          name: tflite-android-libs
-          path: |
-            tensorflow/build_android_arm64/**/*.so
-            tensorflow/build_android_arm64/**/*.a
-            tensorflow/build_android_armv7/**/*.so
-            tensorflow/build_android_armv7/**/*.a
-        if: always()
-
-
-  build-dll:
+  build-tflite-c-dll:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
-      - name: Install CMake and Ninja
-        run: |
-          choco install cmake -y
-          choco install ninja -y
-
-      - name: Clone TensorFlow
-        run: git clone --depth 1 --branch v2.18.0 https://github.com/tensorflow/tensorflow.git
-
-      - name: Create build directory
-        run: mkdir tensorflow\tensorflow\lite\build
-
-      - name: Configure with CMake
-        run: |
-          cd tensorflow\tensorflow\lite\build
-          cmake .. `
-            -G "Ninja" `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DBUILD_SHARED_LIBS=ON `
-            -DTFLITE_ENABLE_XNNPACK=ON `
-            -DTFLITE_ENABLE_RUY=ON
-
-      - name: Build TFLite
-        run: |
-          cd tensorflow\tensorflow\lite\build
-          ninja tensorflowlite_c
-
-      - name: Find and List Built Files
-        shell: pwsh
-        run: |
-          Write-Host "Searching for built files..."
-          Get-ChildItem -Path tensorflow\tensorflow\lite\build -Recurse -Include *.dll,*.lib,*.pdb | ForEach-Object { 
-            Write-Host $_.FullName 
-          }
-
-      - name: Copy built files to output directory
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path output
-          Get-ChildItem -Path tensorflow\tensorflow\lite\build -Recurse -Include *.dll,*.lib,*.pdb | Copy-Item -Destination output -Force
-
-      - name: Upload DLL
-        uses: actions/upload-artifact@v4
-        with:
-          name: tflite-windows-dll
-          path: output/*
-        if: always()
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup MSVC
+      uses: microsoft/setup-msbuild@v1
+      
+    - name: Install CMake and Ninja
+      run: |
+        choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+        choco install ninja -y
+        
+    - name: Clone TensorFlow Lite (Standalone)
+      shell: pwsh
+      run: |
+        # Clone the tensorflow repository
+        git clone https://github.com/tensorflow/tensorflow.git
+        cd tensorflow
+        git checkout v2.18.0
+        
+    - name: Build using CMake Presets (Recommended)
+      shell: pwsh
+      run: |
+        cd tensorflow
+        
+        # Create and use CMake Preset for Windows DLL
+        $presetContent = @'
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "windows-dll",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_SHARED_LIBS": "ON",
+        "TFLITE_ENABLE_GPU": "OFF",
+        "TFLITE_ENABLE_NNAPI": "OFF",
+        "TFLITE_ENABLE_XNNPACK": "ON",
+        "TFLITE_ENABLE_RUY": "ON",
+        "TFLITE_BUILD_CC_LIB": "ON",
+        "TFLITE_BUILD_PYTHON_MODULE": "OFF",
+        "TFLITE_BUILD_JAVA_BINDINGS": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "tflite-c-dll",
+      "configurePreset": "windows-dll",
+      "targets": ["tensorflowlite_c"]
+    }
+  ]
+}
+'@
+        
+        $presetContent | Out-File -FilePath "CMakePresets.json" -Encoding UTF8
+        
+        # Configure and build
+        cmake --preset windows-dll
+        cmake --build --preset tflite-c-dll
+        
+    - name: Extract DLL from Build
+      shell: pwsh
+      run: |
+        # Create output directory
+        New-Item -ItemType Directory -Force -Path "tflite-output"
+        
+        # Search for the DLL
+        $searchPaths = @(
+            "tensorflow/build",
+            "tensorflow/build/Release",
+            "tensorflow/build/tensorflow/lite",
+            "tensorflow/tensorflow/lite"
+        )
+        
+        foreach ($path in $searchPaths) {
+            if (Test-Path $path) {
+                $dllFiles = Get-ChildItem -Path $path -Recurse -Filter "*tensorflowlite*.dll" -File
+                foreach ($dll in $dllFiles) {
+                    Write-Host "Found DLL: $($dll.FullName)"
+                    Copy-Item -Path $dll.FullName -Destination "tflite-output/libtensorflowlite_c.dll"
+                }
+                
+                $libFiles = Get-ChildItem -Path $path -Recurse -Filter "*tensorflowlite*.lib" -File
+                foreach ($lib in $libFiles) {
+                    Write-Host "Found LIB: $($lib.FullName)"
+                    Copy-Item -Path $lib.FullName -Destination "tflite-output/libtensorflowlite_c.lib"
+                }
+            }
+        }
+        
+        # Copy C API headers
+        if (Test-Path "tensorflow/tensorflow/lite/c") {
+            New-Item -ItemType Directory -Force -Path "tflite-output/include"
+            Get-ChildItem -Path "tensorflow/tensorflow/lite/c" -Filter "*.h" | ForEach-Object {
+                Copy-Item -Path $_.FullName -Destination "tflite-output/include/"
+            }
+        }
+        
+        # Verify the DLL exists
+        if (Test-Path "tflite-output/libtensorflowlite_c.dll") {
+            Write-Host "SUCCESS: libtensorflowlite_c.dll was created successfully!"
+            $dllInfo = Get-Item "tflite-output/libtensorflowlite_c.dll"
+            Write-Host "DLL Size: $($dllInfo.Length) bytes"
+            Write-Host "DLL Date: $($dllInfo.CreationTime)"
+        } else {
+            Write-Host "ERROR: libtensorflowlite_c.dll not found!"
+            Write-Host "Listing build directory:"
+            Get-ChildItem -Path "tensorflow/build" -Recurse | Where-Object { $_.Extension -in ".dll", ".lib", ".exe" }
+        }
+        
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: tensorflow-lite-c-dll
+        path: tflite-output/**
+        if-no-files-found: error
