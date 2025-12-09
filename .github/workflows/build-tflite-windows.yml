@@ -63,7 +63,9 @@ jobs:
     - name: Configure TFLite Build
       shell: cmd
       run: |
-        cd tensorflow\tensorflow\lite\c\build
+        cd tensorflow\tensorflow\lite\c
+        if not exist build mkdir build
+        cd build
         cmake .. -G "Ninja" ^
           -DCMAKE_BUILD_TYPE=Release ^
           -DBUILD_SHARED_LIBS=ON ^
