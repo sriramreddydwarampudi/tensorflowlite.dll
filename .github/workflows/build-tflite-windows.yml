@@ -17,40 +17,91 @@ jobs:
       uses: microsoft/setup-msbuild@v1
       
     - name: Install Tools
+      shell: powershell
       run: |
         choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
         choco install ninja -y
+        choco install git -y
         
     - name: Clone TensorFlow
+      shell: powershell
       run: |
         git clone https://github.com/tensorflow/tensorflow.git
         cd tensorflow
         git checkout v2.18.0
         
-    - name: Configure and Build
+    - name: Configure TFLite Build
+      shell: powershell
       run: |
-        cd tensorflow
+        # Navigate to tflite directory
+        cd tensorflow\tensorflow\lite
         
-        # Configure
-        cmake -S . -B build ^
-          -G "Ninja" ^
-          -DCMAKE_BUILD_TYPE=Release ^
-          -DBUILD_SHARED_LIBS=ON ^
-          -DTFLITE_ENABLE_GPU=OFF ^
-          -DTFLITE_ENABLE_NNAPI=OFF ^
-          -DTFLITE_BUILD_CC_LIB=ON ^
-          -DTFLITE_BUILD_PYTHON_MODULE=OFF
+        # Create build directory
+        New-Item -ItemType Directory -Force -Path build
+        cd build
         
-        # Build
-        cmake --build build --target tensorflowlite_c
+        # Configure CMake
+        cmake .. -G "Ninja" `
+          -DCMAKE_BUILD_TYPE=Release `
+          -DBUILD_SHARED_LIBS=ON `
+          -DTFLITE_ENABLE_GPU=OFF `
+          -DTFLITE_ENABLE_NNAPI=OFF `
+          -DTFLITE_ENABLE_XNNPACK=ON `
+          -DTFLITE_ENABLE_RUY=ON `
+          -DTFLITE_BUILD_CC_LIB=ON `
+          -DTFLITE_BUILD_PYTHON_MODULE=OFF `
+          -DTFLITE_BUILD_JAVA_BINDINGS=OFF `
+          -DTFLITE_BUILD_CC_TEST=OFF
         
-    - name: Collect Artifacts
-      shell: cmd
+    - name: Build TFLite C Library
+      shell: powershell
       run: |
-        mkdir output
-        copy tensorflow\build\*.dll output\ 2>nul || echo "No DLLs found"
-        copy tensorflow\build\*.lib output\ 2>nul || echo "No LIBs found"
-        dir output
+        cd tensorflow\tensorflow\lite\build
+        cmake --build . --target tensorflowlite_c --config Release
+        
+    - name: Collect Build Artifacts
+      shell: powershell
+      run: |
+        # Create output directory
+        New-Item -ItemType Directory -Force -Path output
+        
+        # Search for DLL and LIB files
+        $buildDir = "tensorflow\tensorflow\lite\build"
+        
+        # Look for DLLs
+        $dllFiles = Get-ChildItem -Path $buildDir -Recurse -Include "*.dll" -File
+        foreach ($file in $dllFiles) {
+            Write-Host "Found DLL: $($file.FullName)"
+            Copy-Item -Path $file.FullName -Destination "output\"
+        }
+        
+        # Look for LIBs
+        $libFiles = Get-ChildItem -Path $buildDir -Recurse -Include "*.lib" -File
+        foreach ($file in $libFiles) {
+            Write-Host "Found LIB: $($file.FullName)"
+            Copy-Item -Path $file.FullName -Destination "output\"
+        }
+        
+        # If no files found, try the Release subdirectory
+        if ((Get-ChildItem -Path output).Count -eq 0) {
+            Write-Host "No files found, checking Release directory..."
+            if (Test-Path "$buildDir\Release") {
+                Get-ChildItem -Path "$buildDir\Release" -Include "*.dll", "*.lib" -File | ForEach-Object {
+                    Copy-Item -Path $_.FullName -Destination "output\"
+                }
+            }
+        }
+        
+        # Copy C API headers
+        $capiDir = "tensorflow\tensorflow\lite\c"
+        if (Test-Path $capiDir) {
+            New-Item -ItemType Directory -Force -Path "output\include"
+            Copy-Item -Path "$capiDir\*.h" -Destination "output\include\" -Recurse
+        }
+        
+        # List what we found
+        Write-Host "Output directory contents:"
+        Get-ChildItem -Path output -Recurse
         
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
