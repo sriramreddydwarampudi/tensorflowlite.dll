@@ -30,8 +30,9 @@ jobs:
         cd tensorflow
         git checkout v2.18.0
         
-    - name: Configure TFLite Build
+    - name: Initial CMake Configure (to download dependencies)
       shell: cmd
+      continue-on-error: true
       run: |
         cd tensorflow\tensorflow\lite\c
         if exist build rmdir /s /q build
@@ -43,8 +44,33 @@ jobs:
           -DTFLITE_ENABLE_GPU=OFF ^
           -DTFLITE_ENABLE_NNAPI=OFF ^
           -DTFLITE_ENABLE_XNNPACK=ON ^
-          -DTFLITE_ENABLE_RUY=ON ^
-          -DCMAKE_POLICY_DEFAULT_CMP0000=NEW
+          -DTFLITE_ENABLE_RUY=ON
+    
+    - name: Patch FP16 CMakeLists.txt
+      shell: powershell
+      run: |
+        $fp16Path = "tensorflow\tensorflow\lite\c\FP16-source\CMakeLists.txt"
+        if (Test-Path $fp16Path) {
+          $content = Get-Content $fp16Path -Raw
+          $content = $content -replace 'CMAKE_MINIMUM_REQUIRED\(VERSION 2\.8\.12 FATAL_ERROR\)', 'CMAKE_MINIMUM_REQUIRED(VERSION 3.5 FATAL_ERROR)'
+          Set-Content $fp16Path -Value $content
+          Write-Host "FP16 CMakeLists.txt patched successfully"
+        } else {
+          Write-Host "FP16 source not found, checking alternative locations..."
+          Get-ChildItem -Path "tensorflow\tensorflow\lite\c" -Recurse -Filter "CMakeLists.txt" | Where-Object { $_.FullName -like "*FP16*" }
+        }
+        
+    - name: Configure TFLite Build
+      shell: cmd
+      run: |
+        cd tensorflow\tensorflow\lite\c\build
+        cmake .. -G "Ninja" ^
+          -DCMAKE_BUILD_TYPE=Release ^
+          -DBUILD_SHARED_LIBS=ON ^
+          -DTFLITE_ENABLE_GPU=OFF ^
+          -DTFLITE_ENABLE_NNAPI=OFF ^
+          -DTFLITE_ENABLE_XNNPACK=ON ^
+          -DTFLITE_ENABLE_RUY=ON
         
     - name: Build TFLite C Library
       shell: cmd
