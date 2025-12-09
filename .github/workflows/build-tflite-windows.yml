@@ -36,6 +36,8 @@ jobs:
           sdkmanager --install "ndk;25.2.9519653"
           sdkmanager --install "build-tools;34.0.0"
           sdkmanager --install "platforms;android-34"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653"
 
       - name: Install Bazelisk
         run: |
@@ -45,75 +47,55 @@ jobs:
       - name: Clone TensorFlow
         run: git clone --depth 1 --branch v2.18.0 https://github.com/tensorflow/tensorflow.git
 
-      - name: Configure Android SDK for Bazel
+      - name: Register Android SDK with Bazel
         run: |
           cd tensorflow
           
-          # Create local.properties
-          cat > local.properties << EOF
-          sdk.dir=$ANDROID_HOME
-          ndk.dir=$ANDROID_HOME/ndk/25.2.9519653
+          # Create WORKSPACE.user to register Android SDK
+          cat > WORKSPACE.user << EOF
+          android_sdk_repository(
+              name = "androidsdk",
+              api_level = 34,
+              build_tools_version = "34.0.0",
+              path = "$ANDROID_HOME",
+          )
+
+          android_ndk_repository(
+              name = "androidndk",
+              api_level = 21,
+              path = "$ANDROID_HOME/ndk/25.2.9519653",
+          )
           EOF
           
-          # Create .bazelrc.user with Android configuration
-          cat > .bazelrc.user << EOF
-          build --action_env ANDROID_HOME=$ANDROID_HOME
-          build --action_env ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653
-          build --repo_env=ANDROID_HOME=$ANDROID_HOME
-          build --repo_env=ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653
-          EOF
-          
-          # Verify Android SDK location
-          echo "ANDROID_HOME is: $ANDROID_HOME"
-          ls -la $ANDROID_HOME
-          ls -la $ANDROID_HOME/ndk/
+          cat WORKSPACE.user
 
-      - name: Configure TensorFlow
-        run: |
-          cd tensorflow
-          # Use Python to run configure
-          python3 << 'PYTHON_SCRIPT'
-          import os
-          
-          # Set environment variables for configure
-          os.environ['ANDROID_API_LEVEL'] = '34'
-          os.environ['ANDROID_BUILD_TOOLS_VERSION'] = '34.0.0'
-          os.environ['ANDROID_SDK_HOME'] = os.environ.get('ANDROID_HOME', '')
-          os.environ['ANDROID_NDK_HOME'] = os.path.join(os.environ.get('ANDROID_HOME', ''), 'ndk/25.2.9519653')
-          
-          # Create a simple response file for configure
-          with open('/tmp/configure_responses.txt', 'w') as f:
-              f.write('\n' * 20)  # Answer no/default to most questions
-          
-          print(f"ANDROID_SDK_HOME: {os.environ['ANDROID_SDK_HOME']}")
-          print(f"ANDROID_NDK_HOME: {os.environ['ANDROID_NDK_HOME']}")
-          PYTHON_SCRIPT
-
-      - name: Build TFLite AAR (CPU) with explicit Android SDK
+      - name: Build TFLite AAR with registered SDK
         run: |
           cd tensorflow
           bazel build \
             --config=android_arm64 \
-            --action_env ANDROID_HOME=$ANDROID_HOME \
-            --action_env ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653 \
-            --define=android_dexmerger_tool=d8_dexmerger \
-            --define=android_incremental_dexing_tool=d8_dexbuilder \
             -c opt \
             //tensorflow/lite/java:tensorflow-lite
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/25.2.9519653
 
-      - name: Try alternative build target
-        if: failure()
+      - name: Build for multiple architectures
+        if: success()
         run: |
           cd tensorflow
-          # Try building without Android-specific config
-          bazel build -c opt //tensorflow/lite/c:tensorflowlite_c
+          bazel build \
+            --config=android \
+            --fat_apk_cpu=armeabi-v7a,arm64-v8a,x86,x86_64 \
+            -c opt \
+            //tensorflow/lite/java:tensorflow-lite
         continue-on-error: true
 
       - name: List built files
         if: always()
         run: |
           echo "Searching for built artifacts..."
-          find tensorflow/bazel-bin -name "*.aar" -o -name "*.jar" -o -name "*.so" || true
+          find tensorflow/bazel-bin/tensorflow/lite -name "*.aar" -o -name "*.jar" -o -name "*.so" || true
 
       - name: Upload AAR Files
         uses: actions/upload-artifact@v4
@@ -122,7 +104,6 @@ jobs:
           path: |
             tensorflow/bazel-bin/tensorflow/lite/java/*.aar
             tensorflow/bazel-bin/tensorflow/lite/java/*.jar
-            tensorflow/bazel-bin/tensorflow/lite/c/*.so
         if: always()
 
 
