@@ -1,51 +1,50 @@
-name: Build TFLite DLL for Windows
+name: Build TensorFlow Lite Shared Library
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
-  build-windows-dll:
-    runs-on: windows-latest
-
-    env:
-      TFLITE_ENABLE_C_API: "ON"
-      TFLITE_ENABLE_RUY: "ON"
-      TFLITE_ENABLE_XNNPACK: "ON"
-      TFLITE_USE_FARMHASH: "OFF"
+  build-ubuntu-dll:
+    runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      # Checkout code
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Install dependencies
-      run: |
-        choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
-        choco install visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --quiet --norestart" -y
+      # Install dependencies
+      - name: Install build dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y cmake ninja-build g++ wget unzip
 
-    - name: Configure CMake
-      run: |
-        mkdir build
-        cd build
-        cmake .. ^
-          -DCMAKE_BUILD_TYPE=Release ^
-          -DTFLITE_ENABLE_C_API=$env:TFLITE_ENABLE_C_API ^
-          -DTFLITE_ENABLE_RUY=$env:TFLITE_ENABLE_RUY ^
-          -DTFLITE_ENABLE_XNNPACK=$env:TFLITE_ENABLE_XNNPACK ^
-          -DTFLITE_USE_FARMHASH=$env:TFLITE_USE_FARMHASH ^
-          -DCMAKE_WINDOWS_EXPORT_ALL_SYMBOLS=ON ^
-          -DCMAKE_GENERATOR="Visual Studio 17 2022" ^
-          -A x64
+      # Create build directory
+      - name: Create build directory
+        run: mkdir -p tensorflow/lite/build
 
-    - name: Build TFLite DLL
-      run: |
-        cd build
-        cmake --build . --config Release
+      # Configure CMake (disable FarmHash)
+      - name: Configure CMake
+        run: |
+          cd tensorflow/lite/build
+          cmake .. \
+            -DTFLITE_ENABLE_C_API=ON \
+            -DTFLITE_ENABLE_RUY=ON \
+            -DTFLITE_ENABLE_XNNPACK=ON \
+            -DTFLITE_USE_FARMHASH=OFF \
+            -DCMAKE_BUILD_TYPE=Release \
+            -G Ninja
 
-    - name: Upload DLL
-      uses: actions/upload-artifact@v4
-      with:
-        name: tflite-dll
-        path: build/Release/*.dll
+      # Build shared library
+      - name: Build TensorFlow Lite
+        run: |
+          cd tensorflow/lite/build
+          ninja
+
+      # Upload artifact
+      - name: Upload shared library
+        uses: actions/upload-artifact@v4
+        with:
+          name: tensorflowlite-so
+          path: tensorflow/lite/build/libtensorflow-lite.so
