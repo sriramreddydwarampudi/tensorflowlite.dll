@@ -13,119 +13,47 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       
-    - name: Setup MSVC
+    - name: Setup Visual Studio
       uses: microsoft/setup-msbuild@v1
       
-    - name: Install CMake and Ninja
+    - name: Install Tools
       run: |
         choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
         choco install ninja -y
         
-    - name: Clone TensorFlow Lite (Standalone)
-      shell: pwsh
+    - name: Clone TensorFlow
       run: |
-        # Clone the tensorflow repository
         git clone https://github.com/tensorflow/tensorflow.git
         cd tensorflow
         git checkout v2.18.0
         
-    - name: Build using CMake Presets (Recommended)
-      shell: pwsh
+    - name: Configure and Build
       run: |
         cd tensorflow
         
-        # Create and use CMake Preset for Windows DLL
-        $presetContent = @'
-{
-  "version": 3,
-  "configurePresets": [
-    {
-      "name": "windows-dll",
-      "hidden": true,
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "BUILD_SHARED_LIBS": "ON",
-        "TFLITE_ENABLE_GPU": "OFF",
-        "TFLITE_ENABLE_NNAPI": "OFF",
-        "TFLITE_ENABLE_XNNPACK": "ON",
-        "TFLITE_ENABLE_RUY": "ON",
-        "TFLITE_BUILD_CC_LIB": "ON",
-        "TFLITE_BUILD_PYTHON_MODULE": "OFF",
-        "TFLITE_BUILD_JAVA_BINDINGS": "OFF"
-      }
-    }
-  ],
-  "buildPresets": [
-    {
-      "name": "tflite-c-dll",
-      "configurePreset": "windows-dll",
-      "targets": ["tensorflowlite_c"]
-    }
-  ]
-}
-'@
+        # Configure
+        cmake -S . -B build ^
+          -G "Ninja" ^
+          -DCMAKE_BUILD_TYPE=Release ^
+          -DBUILD_SHARED_LIBS=ON ^
+          -DTFLITE_ENABLE_GPU=OFF ^
+          -DTFLITE_ENABLE_NNAPI=OFF ^
+          -DTFLITE_BUILD_CC_LIB=ON ^
+          -DTFLITE_BUILD_PYTHON_MODULE=OFF
         
-        $presetContent | Out-File -FilePath "CMakePresets.json" -Encoding UTF8
+        # Build
+        cmake --build build --target tensorflowlite_c
         
-        # Configure and build
-        cmake --preset windows-dll
-        cmake --build --preset tflite-c-dll
-        
-    - name: Extract DLL from Build
-      shell: pwsh
+    - name: Collect Artifacts
+      shell: cmd
       run: |
-        # Create output directory
-        New-Item -ItemType Directory -Force -Path "tflite-output"
-        
-        # Search for the DLL
-        $searchPaths = @(
-            "tensorflow/build",
-            "tensorflow/build/Release",
-            "tensorflow/build/tensorflow/lite",
-            "tensorflow/tensorflow/lite"
-        )
-        
-        foreach ($path in $searchPaths) {
-            if (Test-Path $path) {
-                $dllFiles = Get-ChildItem -Path $path -Recurse -Filter "*tensorflowlite*.dll" -File
-                foreach ($dll in $dllFiles) {
-                    Write-Host "Found DLL: $($dll.FullName)"
-                    Copy-Item -Path $dll.FullName -Destination "tflite-output/libtensorflowlite_c.dll"
-                }
-                
-                $libFiles = Get-ChildItem -Path $path -Recurse -Filter "*tensorflowlite*.lib" -File
-                foreach ($lib in $libFiles) {
-                    Write-Host "Found LIB: $($lib.FullName)"
-                    Copy-Item -Path $lib.FullName -Destination "tflite-output/libtensorflowlite_c.lib"
-                }
-            }
-        }
-        
-        # Copy C API headers
-        if (Test-Path "tensorflow/tensorflow/lite/c") {
-            New-Item -ItemType Directory -Force -Path "tflite-output/include"
-            Get-ChildItem -Path "tensorflow/tensorflow/lite/c" -Filter "*.h" | ForEach-Object {
-                Copy-Item -Path $_.FullName -Destination "tflite-output/include/"
-            }
-        }
-        
-        # Verify the DLL exists
-        if (Test-Path "tflite-output/libtensorflowlite_c.dll") {
-            Write-Host "SUCCESS: libtensorflowlite_c.dll was created successfully!"
-            $dllInfo = Get-Item "tflite-output/libtensorflowlite_c.dll"
-            Write-Host "DLL Size: $($dllInfo.Length) bytes"
-            Write-Host "DLL Date: $($dllInfo.CreationTime)"
-        } else {
-            Write-Host "ERROR: libtensorflowlite_c.dll not found!"
-            Write-Host "Listing build directory:"
-            Get-ChildItem -Path "tensorflow/build" -Recurse | Where-Object { $_.Extension -in ".dll", ".lib", ".exe" }
-        }
+        mkdir output
+        copy tensorflow\build\*.dll output\ 2>nul || echo "No DLLs found"
+        copy tensorflow\build\*.lib output\ 2>nul || echo "No LIBs found"
+        dir output
         
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: tensorflow-lite-c-dll
-        path: tflite-output/**
-        if-no-files-found: error
+        name: tflite-dll
+        path: output/*
