@@ -53,9 +53,7 @@ jobs:
           
           # Use TensorFlow's official build script
           bash tensorflow/lite/tools/build_aar.sh \
-            --input_models= \
-            --target_archs=x86,x86_64,arm64-v8a,armeabi-v7a \
-            --checkpoint=bazel_build
+            --target_archs=x86,x86_64,arm64-v8a,armeabi-v7a
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
