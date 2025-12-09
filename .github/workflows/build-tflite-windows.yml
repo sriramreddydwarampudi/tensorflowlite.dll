@@ -25,7 +25,7 @@ jobs:
     - name: Clean and Clone TensorFlow
       shell: cmd
       run: |
-        rmdir /s /q tensorflow 2>nul
+        if exist tensorflow rmdir /s /q tensorflow
         git clone https://github.com/tensorflow/tensorflow.git
         cd tensorflow
         git checkout v2.18.0
@@ -33,8 +33,8 @@ jobs:
     - name: Configure TFLite Build
       shell: cmd
       run: |
-        cd tensorflow\tensorflow\lite
-        rmdir /s /q build 2>nul
+        cd tensorflow\tensorflow\lite\c
+        if exist build rmdir /s /q build
         mkdir build
         cd build
         cmake .. -G "Ninja" ^
@@ -43,15 +43,13 @@ jobs:
           -DTFLITE_ENABLE_GPU=OFF ^
           -DTFLITE_ENABLE_NNAPI=OFF ^
           -DTFLITE_ENABLE_XNNPACK=ON ^
-          -DTFLITE_ENABLE_RUY=ON ^
-          -DTFLITE_BUILD_CC_LIB=ON ^
-          -DTFLITE_BUILD_PYTHON_MODULE=OFF
+          -DTFLITE_ENABLE_RUY=ON
         
     - name: Build TFLite C Library
       shell: cmd
       run: |
-        cd tensorflow\tensorflow\lite\build
-        cmake --build . --target tensorflowlite_c
+        cd tensorflow\tensorflow\lite\c\build
+        cmake --build . --config Release
         
     - name: Collect Artifacts
       shell: cmd
@@ -59,34 +57,30 @@ jobs:
         mkdir output
         
         echo Looking for built files...
-        cd tensorflow\tensorflow\lite\build
-        dir
         
-        rem Copy any DLL or LIB files
-        copy *.dll ..\..\..\..\output\ 2>nul
-        if errorlevel 1 echo No DLLs found in root directory
+        rem Copy DLL and LIB files from build directory
+        if exist tensorflow\tensorflow\lite\c\build\*.dll (
+            copy tensorflow\tensorflow\lite\c\build\*.dll output\
+        )
+        if exist tensorflow\tensorflow\lite\c\build\*.lib (
+            copy tensorflow\tensorflow\lite\c\build\*.lib output\
+        )
         
-        copy *.lib ..\..\..\..\output\ 2>nul
-        if errorlevel 1 echo No LIBs found in root directory
-        
-        rem Check Release directory
-        if exist Release (
-            cd Release
-            copy *.dll ..\..\..\..\..\output\ 2>nul
-            if errorlevel 1 echo No DLLs found in Release directory
-            copy *.lib ..\..\..\..\..\output\ 2>nul
-            if errorlevel 1 echo No LIBs found in Release directory
-            cd ..
+        rem Check Release subdirectory
+        if exist tensorflow\tensorflow\lite\c\build\Release\*.dll (
+            copy tensorflow\tensorflow\lite\c\build\Release\*.dll output\
+        )
+        if exist tensorflow\tensorflow\lite\c\build\Release\*.lib (
+            copy tensorflow\tensorflow\lite\c\build\Release\*.lib output\
         )
         
         rem Copy headers
-        mkdir ..\..\..\..\output\include
-        xcopy /E /I ..\c ..\..\..\..\output\include
+        mkdir output\include
+        xcopy /E /I tensorflow\tensorflow\lite\c\*.h output\include\
         
         rem Show output
-        cd ..\..\..\..\output
         echo Output directory contents:
-        dir
+        dir output
         
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
