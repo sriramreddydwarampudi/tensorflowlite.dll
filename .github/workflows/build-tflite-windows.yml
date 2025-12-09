@@ -1,33 +1,37 @@
 name: Build TensorFlow Lite Shared Library
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main ]
-  workflow_dispatch:
 
 jobs:
-  build-ubuntu-dll:
+  build-tflite:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout code
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      # Install dependencies
-      - name: Install build dependencies
+      - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y cmake ninja-build g++ wget unzip
+          sudo apt install -y cmake ninja-build g++ git wget unzip
+
+      # Download TensorFlow (only TFLite needed)
+      - name: Clone TensorFlow
+        run: |
+          git clone --depth 1 https://github.com/tensorflow/tensorflow.git
+          ls tensorflow/tensorflow/lite
 
       # Create build directory
-      - name: Create build directory
-        run: mkdir -p tensorflow/lite/build
+      - name: Create build folder
+        run: mkdir -p tensorflow/tensorflow/lite/build
 
-      # Configure CMake (disable FarmHash)
-      - name: Configure CMake
+      # Configure CMake
+      - name: Configure TFLite CMake
         run: |
-          cd tensorflow/lite/build
+          cd tensorflow/tensorflow/lite/build
           cmake .. \
             -DTFLITE_ENABLE_C_API=ON \
             -DTFLITE_ENABLE_RUY=ON \
@@ -36,15 +40,17 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -G Ninja
 
-      # Build shared library
+      # Build
       - name: Build TensorFlow Lite
         run: |
-          cd tensorflow/lite/build
+          cd tensorflow/tensorflow/lite/build
           ninja
 
-      # Upload artifact
-      - name: Upload shared library
+      # Upload built library
+      - name: Upload .so file
         uses: actions/upload-artifact@v4
         with:
-          name: tensorflowlite-so
-          path: tensorflow/lite/build/libtensorflow-lite.so
+          name: tflite-linux-so
+          path: |
+            tensorflow/tensorflow/lite/build/*.so
+            tensorflow/tensorflow/lite/build/*.a
