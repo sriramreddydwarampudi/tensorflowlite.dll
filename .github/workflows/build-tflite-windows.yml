@@ -72,11 +72,15 @@ jobs:
         Write-Host "Dependency patching complete"
         
     - name: Clean Build Directory
-      shell: cmd
+      shell: powershell
       run: |
-        cd tensorflow\tensorflow\lite\c
-        if exist build rmdir /s /q build
-        mkdir build
+        $buildPath = "tensorflow\tensorflow\lite\c\build"
+        if (Test-Path $buildPath) {
+          Remove-Item -Path $buildPath -Recurse -Force
+          Write-Host "Removed existing build directory"
+        }
+        New-Item -Path $buildPath -ItemType Directory -Force | Out-Null
+        Write-Host "Created fresh build directory"
         
     - name: Configure TFLite Build
       shell: cmd
