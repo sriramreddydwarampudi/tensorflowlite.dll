@@ -38,10 +38,10 @@ jobs:
         
         # Create build directory
         New-Item -ItemType Directory -Force -Path build
-        cd build
         
         # Configure CMake
-        cmake .. -G "Ninja" `
+        cmake -S . -B build `
+          -G "Ninja" `
           -DCMAKE_BUILD_TYPE=Release `
           -DBUILD_SHARED_LIBS=ON `
           -DTFLITE_ENABLE_GPU=OFF `
@@ -56,8 +56,9 @@ jobs:
     - name: Build TFLite C Library
       shell: powershell
       run: |
-        cd tensorflow\tensorflow\lite\build
-        cmake --build . --target tensorflowlite_c --config Release
+        # Build from the same directory
+        cd tensorflow\tensorflow\lite
+        cmake --build build --target tensorflowlite_c --config Release
         
     - name: Collect Build Artifacts
       shell: powershell
