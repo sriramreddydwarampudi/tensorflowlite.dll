@@ -46,26 +46,42 @@ jobs:
           -DTFLITE_ENABLE_XNNPACK=ON ^
           -DTFLITE_ENABLE_RUY=ON
     
-    - name: Patch FP16 CMakeLists.txt
+    - name: Patch All Dependency CMakeLists.txt Files
       shell: powershell
       run: |
-        $fp16Path = "tensorflow\tensorflow\lite\c\FP16-source\CMakeLists.txt"
-        if (Test-Path $fp16Path) {
-          $content = Get-Content $fp16Path -Raw
-          $content = $content -replace 'CMAKE_MINIMUM_REQUIRED\(VERSION 2\.8\.12 FATAL_ERROR\)', 'CMAKE_MINIMUM_REQUIRED(VERSION 3.5 FATAL_ERROR)'
-          Set-Content $fp16Path -Value $content
-          Write-Host "FP16 CMakeLists.txt patched successfully"
-        } else {
-          Write-Host "FP16 source not found, checking alternative locations..."
-          Get-ChildItem -Path "tensorflow\tensorflow\lite\c" -Recurse -Filter "CMakeLists.txt" | Where-Object { $_.FullName -like "*FP16*" }
+        # Find all CMakeLists.txt files in downloaded dependencies
+        $cmakeFiles = Get-ChildItem -Path "tensorflow\tensorflow\lite\c" -Recurse -Filter "CMakeLists.txt"
+        
+        foreach ($file in $cmakeFiles) {
+          $content = Get-Content $file.FullName -Raw
+          $modified = $false
+          
+          # Replace old CMake version requirements
+          if ($content -match 'CMAKE_MINIMUM_REQUIRED\s*\(\s*VERSION\s+2\.\d+') {
+            $content = $content -replace 'CMAKE_MINIMUM_REQUIRED\s*\(\s*VERSION\s+2\.\d+\.\d+\s+FATAL_ERROR\s*\)', 'CMAKE_MINIMUM_REQUIRED(VERSION 3.5 FATAL_ERROR)'
+            $content = $content -replace 'CMAKE_MINIMUM_REQUIRED\s*\(\s*VERSION\s+2\.\d+\.\d+\s*\)', 'CMAKE_MINIMUM_REQUIRED(VERSION 3.5)'
+            $modified = $true
+          }
+          
+          if ($modified) {
+            Set-Content $file.FullName -Value $content
+            Write-Host "Patched: $($file.FullName)"
+          }
         }
+        
+        Write-Host "Dependency patching complete"
+        
+    - name: Clean Build Directory
+      shell: cmd
+      run: |
+        cd tensorflow\tensorflow\lite\c
+        if exist build rmdir /s /q build
+        mkdir build
         
     - name: Configure TFLite Build
       shell: cmd
       run: |
-        cd tensorflow\tensorflow\lite\c
-        if not exist build mkdir build
-        cd build
+        cd tensorflow\tensorflow\lite\c\build
         cmake .. -G "Ninja" ^
           -DCMAKE_BUILD_TYPE=Release ^
           -DBUILD_SHARED_LIBS=ON ^
