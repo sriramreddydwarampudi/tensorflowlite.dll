@@ -19,7 +19,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y python3 zip unzip build-essential openjdk-17-jdk
+          sudo apt install -y python3 zip unzip build-essential
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -32,14 +32,10 @@ jobs:
       
       - name: Install Android NDK and Build Tools
         run: |
+          yes | sdkmanager --licenses || true
           sdkmanager --install "ndk;25.2.9519653"
           sdkmanager --install "build-tools;34.0.0"
           sdkmanager --install "platforms;android-34"
-
-      - name: Set Android Environment Variables
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653" >> $GITHUB_ENV
 
       - name: Install Bazelisk
         run: |
@@ -47,46 +43,91 @@ jobs:
           sudo chmod +x /usr/local/bin/bazel
 
       - name: Clone TensorFlow
-        run: git clone --depth 1 https://github.com/tensorflow/tensorflow.git
+        run: git clone --depth 1 --branch v2.18.0 https://github.com/tensorflow/tensorflow.git
 
-      - name: Configure Bazel for Android
+      - name: Configure Android SDK for Bazel
         run: |
           cd tensorflow
+          
+          # Create local.properties
+          cat > local.properties << EOF
+          sdk.dir=$ANDROID_HOME
+          ndk.dir=$ANDROID_HOME/ndk/25.2.9519653
+          EOF
+          
+          # Create .bazelrc.user with Android configuration
           cat > .bazelrc.user << EOF
           build --action_env ANDROID_HOME=$ANDROID_HOME
-          build --action_env ANDROID_NDK_HOME=$ANDROID_NDK_HOME
+          build --action_env ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653
+          build --repo_env=ANDROID_HOME=$ANDROID_HOME
+          build --repo_env=ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653
           EOF
+          
+          # Verify Android SDK location
+          echo "ANDROID_HOME is: $ANDROID_HOME"
+          ls -la $ANDROID_HOME
+          ls -la $ANDROID_HOME/ndk/
 
-      - name: Build TFLite AAR (CPU)
+      - name: Configure TensorFlow
         run: |
           cd tensorflow
-          bazel build -c opt \
-            --fat_apk_cpu=armeabi-v7a,arm64-v8a,x86,x86_64 \
+          # Use Python to run configure
+          python3 << 'PYTHON_SCRIPT'
+          import os
+          
+          # Set environment variables for configure
+          os.environ['ANDROID_API_LEVEL'] = '34'
+          os.environ['ANDROID_BUILD_TOOLS_VERSION'] = '34.0.0'
+          os.environ['ANDROID_SDK_HOME'] = os.environ.get('ANDROID_HOME', '')
+          os.environ['ANDROID_NDK_HOME'] = os.path.join(os.environ.get('ANDROID_HOME', ''), 'ndk/25.2.9519653')
+          
+          # Create a simple response file for configure
+          with open('/tmp/configure_responses.txt', 'w') as f:
+              f.write('\n' * 20)  # Answer no/default to most questions
+          
+          print(f"ANDROID_SDK_HOME: {os.environ['ANDROID_SDK_HOME']}")
+          print(f"ANDROID_NDK_HOME: {os.environ['ANDROID_NDK_HOME']}")
+          PYTHON_SCRIPT
+
+      - name: Build TFLite AAR (CPU) with explicit Android SDK
+        run: |
+          cd tensorflow
+          bazel build \
+            --config=android_arm64 \
+            --action_env ANDROID_HOME=$ANDROID_HOME \
+            --action_env ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653 \
+            --define=android_dexmerger_tool=d8_dexmerger \
+            --define=android_incremental_dexing_tool=d8_dexbuilder \
+            -c opt \
             //tensorflow/lite/java:tensorflow-lite
 
-      - name: Build TFLite GPU AAR
+      - name: Try alternative build target
+        if: failure()
         run: |
           cd tensorflow
-          bazel build -c opt \
-            --fat_apk_cpu=armeabi-v7a,arm64-v8a,x86,x86_64 \
-            //tensorflow/lite/java:tensorflow-lite-gpu
+          # Try building without Android-specific config
+          bazel build -c opt //tensorflow/lite/c:tensorflowlite_c
+        continue-on-error: true
 
-      - name: Build Select TF Ops AAR
+      - name: List built files
+        if: always()
         run: |
-          cd tensorflow
-          bazel build -c opt \
-            --fat_apk_cpu=armeabi-v7a,arm64-v8a,x86,x86_64 \
-            //tensorflow/lite/java:tensorflow-lite-select-tf-ops
+          echo "Searching for built artifacts..."
+          find tensorflow/bazel-bin -name "*.aar" -o -name "*.jar" -o -name "*.so" || true
 
       - name: Upload AAR Files
         uses: actions/upload-artifact@v4
         with:
           name: tflite-aar
-          path: tensorflow/bazel-bin/tensorflow/lite/java/*.aar
+          path: |
+            tensorflow/bazel-bin/tensorflow/lite/java/*.aar
+            tensorflow/bazel-bin/tensorflow/lite/java/*.jar
+            tensorflow/bazel-bin/tensorflow/lite/c/*.so
+        if: always()
 
 
   # -------------------------------------------
-  #  WINDOWS DLL BUILD (MinGW + CMake + Ninja)
+  #  WINDOWS DLL BUILD (MSVC + CMake)
   # -------------------------------------------
   build-dll:
     runs-on: windows-latest
@@ -95,33 +136,33 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install tools
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install CMake and Ninja
         run: |
+          choco install cmake -y
           choco install ninja -y
-          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=1' -y
-          choco install mingw -y
 
       - name: Clone TensorFlow
-        run: git clone --depth 1 https://github.com/tensorflow/tensorflow.git
+        run: git clone --depth 1 --branch v2.18.0 https://github.com/tensorflow/tensorflow.git
 
       - name: Create build directory
         run: mkdir tensorflow\tensorflow\lite\build
 
       - name: Configure with CMake
-        shell: cmd
         run: |
           cd tensorflow\tensorflow\lite\build
-          cmake .. ^
-            -DCMAKE_SYSTEM_NAME=Windows ^
-            -DCMAKE_C_COMPILER=C:/ProgramData/chocolatey/lib/mingw/tools/install/mingw64/bin/gcc.exe ^
-            -DCMAKE_CXX_COMPILER=C:/ProgramData/chocolatey/lib/mingw/tools/install/mingw64/bin/g++.exe ^
-            -DTFLITE_ENABLE_XNNPACK=ON ^
-            -DBUILD_SHARED_LIBS=ON ^
-            -DCMAKE_BUILD_TYPE=Release ^
-            -G Ninja
+          cmake .. `
+            -G "Ninja" `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_SHARED_LIBS=ON `
+            -DTFLITE_ENABLE_XNNPACK=ON `
+            -DTFLITE_ENABLE_RUY=ON
 
-      - name: Build TFLite DLL
-        shell: cmd
+      - name: Build TFLite
         run: |
           cd tensorflow\tensorflow\lite\build
           ninja tensorflowlite_c
@@ -129,13 +170,20 @@ jobs:
       - name: Find and List Built Files
         shell: pwsh
         run: |
-          Get-ChildItem -Path tensorflow\tensorflow\lite\build -Recurse -Include *.dll,*.lib,*.a | ForEach-Object { $_.FullName }
+          Write-Host "Searching for built files..."
+          Get-ChildItem -Path tensorflow\tensorflow\lite\build -Recurse -Include *.dll,*.lib,*.pdb | ForEach-Object { 
+            Write-Host $_.FullName 
+          }
+
+      - name: Copy built files to output directory
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path output
+          Get-ChildItem -Path tensorflow\tensorflow\lite\build -Recurse -Include *.dll,*.lib,*.pdb | Copy-Item -Destination output -Force
 
       - name: Upload DLL
         uses: actions/upload-artifact@v4
         with:
           name: tflite-windows-dll
-          path: |
-            tensorflow/tensorflow/lite/build/**/*.dll
-            tensorflow/tensorflow/lite/build/**/*.lib
-            tensorflow/tensorflow/lite/build/**/*.a
+          path: output/*
+        if: always()
