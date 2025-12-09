@@ -7,7 +7,7 @@ on:
 
 jobs:
   # -------------------------------------------
-  #  ANDROID AAR BUILD (Linux + Bazel)
+  #  ANDROID AAR BUILD (Using build_aar.sh script)
   # -------------------------------------------
   build-aar:
     runs-on: ubuntu-latest
@@ -36,8 +36,6 @@ jobs:
           sdkmanager --install "ndk;25.2.9519653"
           sdkmanager --install "build-tools;34.0.0"
           sdkmanager --install "platforms;android-34"
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653"
 
       - name: Install Bazelisk
         run: |
@@ -47,63 +45,113 @@ jobs:
       - name: Clone TensorFlow
         run: git clone --depth 1 --branch v2.18.0 https://github.com/tensorflow/tensorflow.git
 
-      - name: Register Android SDK with Bazel
+      - name: Build TFLite AAR using official script
         run: |
           cd tensorflow
+          export ANDROID_SDK_HOME=$ANDROID_HOME
+          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653
           
-          # Create WORKSPACE.user to register Android SDK
-          cat > WORKSPACE.user << EOF
-          android_sdk_repository(
-              name = "androidsdk",
-              api_level = 34,
-              build_tools_version = "34.0.0",
-              path = "$ANDROID_HOME",
-          )
-
-          android_ndk_repository(
-              name = "androidndk",
-              api_level = 21,
-              path = "$ANDROID_HOME/ndk/25.2.9519653",
-          )
-          EOF
-          
-          cat WORKSPACE.user
-
-      - name: Build TFLite AAR with registered SDK
-        run: |
-          cd tensorflow
-          bazel build \
-            --config=android_arm64 \
-            -c opt \
-            //tensorflow/lite/java:tensorflow-lite
+          # Use TensorFlow's official build script
+          bash tensorflow/lite/tools/build_aar.sh \
+            --input_models= \
+            --target_archs=x86,x86_64,arm64-v8a,armeabi-v7a \
+            --checkpoint=bazel_build
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/25.2.9519653
 
-      - name: Build for multiple architectures
-        if: success()
+      - name: Find built AAR files
         run: |
-          cd tensorflow
-          bazel build \
-            --config=android \
-            --fat_apk_cpu=armeabi-v7a,arm64-v8a,x86,x86_64 \
-            -c opt \
-            //tensorflow/lite/java:tensorflow-lite
-        continue-on-error: true
-
-      - name: List built files
-        if: always()
-        run: |
-          echo "Searching for built artifacts..."
-          find tensorflow/bazel-bin/tensorflow/lite -name "*.aar" -o -name "*.jar" -o -name "*.so" || true
+          find tensorflow -name "*.aar" -type f
 
       - name: Upload AAR Files
         uses: actions/upload-artifact@v4
         with:
           name: tflite-aar
           path: |
-            tensorflow/bazel-bin/tensorflow/lite/java/*.aar
-            tensorflow/bazel-bin/tensorflow/lite/java/*.jar
+            tensorflow/**/*.aar
+        if: always()
+
+
+  # -------------------------------------------
+  #  ANDROID AAR BUILD - Alternative CMake method
+  # -------------------------------------------
+  build-aar-cmake:
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y cmake ninja-build
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+      
+      - name: Install Android NDK
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager --install "ndk;25.2.9519653"
+
+      - name: Clone TensorFlow
+        run: git clone --depth 1 --branch v2.18.0 https://github.com/tensorflow/tensorflow.git
+
+      - name: Build TFLite with CMake for Android
+        run: |
+          cd tensorflow
+          
+          # Build for arm64-v8a
+          mkdir -p build_android_arm64
+          cd build_android_arm64
+          
+          cmake ../tensorflow/lite \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_HOME/ndk/25.2.9519653/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-21 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTFLITE_ENABLE_XNNPACK=ON \
+            -GNinja
+          
+          ninja
+          
+          cd ..
+          
+          # Build for armeabi-v7a
+          mkdir -p build_android_armv7
+          cd build_android_armv7
+          
+          cmake ../tensorflow/lite \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_HOME/ndk/25.2.9519653/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=armeabi-v7a \
+            -DANDROID_PLATFORM=android-21 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTFLITE_ENABLE_XNNPACK=ON \
+            -GNinja
+          
+          ninja
+
+      - name: List built files
+        run: |
+          find tensorflow/build_android_* -name "*.so" -o -name "*.a"
+
+      - name: Upload Android Libraries
+        uses: actions/upload-artifact@v4
+        with:
+          name: tflite-android-libs
+          path: |
+            tensorflow/build_android_arm64/**/*.so
+            tensorflow/build_android_arm64/**/*.a
+            tensorflow/build_android_armv7/**/*.so
+            tensorflow/build_android_armv7/**/*.a
         if: always()
 
 
