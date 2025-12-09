@@ -17,21 +17,24 @@ jobs:
       uses: microsoft/setup-msbuild@v1
       
     - name: Install Tools
+      shell: cmd
       run: |
-        choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+        choco install cmake --installargs "ADD_CMAKE_TO_PATH=System" -y
         choco install ninja -y
         
-    - name: Clone TensorFlow
+    - name: Clean and Clone TensorFlow
+      shell: cmd
       run: |
-        rmdir /s /q tensorflow 2>nul || echo "No existing tensorflow directory"
+        rmdir /s /q tensorflow 2>nul
         git clone https://github.com/tensorflow/tensorflow.git
         cd tensorflow
         git checkout v2.18.0
         
     - name: Configure TFLite Build
+      shell: cmd
       run: |
         cd tensorflow\tensorflow\lite
-        rmdir /s /q build 2>nul || echo "No existing build directory"
+        rmdir /s /q build 2>nul
         mkdir build
         cd build
         cmake .. -G "Ninja" ^
@@ -45,6 +48,7 @@ jobs:
           -DTFLITE_BUILD_PYTHON_MODULE=OFF
         
     - name: Build TFLite C Library
+      shell: cmd
       run: |
         cd tensorflow\tensorflow\lite\build
         cmake --build . --target tensorflowlite_c
@@ -53,20 +57,25 @@ jobs:
       shell: cmd
       run: |
         mkdir output
-        cd tensorflow\tensorflow\lite\build
         
-        echo "Looking for built files..."
+        echo Looking for built files...
+        cd tensorflow\tensorflow\lite\build
         dir
         
         rem Copy any DLL or LIB files
-        copy *.dll ..\..\..\..\output\ 2>nul || echo "No DLLs found in root"
-        copy *.lib ..\..\..\..\output\ 2>nul || echo "No LIBs found in root"
+        copy *.dll ..\..\..\..\output\ 2>nul
+        if errorlevel 1 echo No DLLs found in root directory
+        
+        copy *.lib ..\..\..\..\output\ 2>nul
+        if errorlevel 1 echo No LIBs found in root directory
         
         rem Check Release directory
         if exist Release (
             cd Release
-            copy *.dll ..\..\..\..\..\output\ 2>nul || echo "No DLLs in Release"
-            copy *.lib ..\..\..\..\..\output\ 2>nul || echo "No LIBs in Release"
+            copy *.dll ..\..\..\..\..\output\ 2>nul
+            if errorlevel 1 echo No DLLs found in Release directory
+            copy *.lib ..\..\..\..\..\output\ 2>nul
+            if errorlevel 1 echo No LIBs found in Release directory
             cd ..
         )
         
@@ -74,9 +83,9 @@ jobs:
         mkdir ..\..\..\..\output\include
         xcopy /E /I ..\c ..\..\..\..\output\include
         
-        rem Show what we collected
+        rem Show output
         cd ..\..\..\..\output
-        echo "Output directory contents:"
+        echo Output directory contents:
         dir
         
     - name: Upload Artifacts
