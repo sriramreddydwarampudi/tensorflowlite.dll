@@ -6,9 +6,6 @@ on:
     branches: [ main ]
 
 jobs:
-  # -------------------------------------------
-  #  ANDROID AAR BUILD (Using build_aar.sh script)
-  # -------------------------------------------
   build-aar:
     runs-on: ubuntu-latest
 
@@ -45,56 +42,50 @@ jobs:
       - name: Clone TensorFlow
         run: git clone --depth 1 --branch v2.18.0 https://github.com/tensorflow/tensorflow.git
 
-      - name: Configure TensorFlow
+      - name: Configure TensorFlow for Android
         run: |
           cd tensorflow
           export ANDROID_SDK_HOME=$ANDROID_HOME
           export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653
-          
-          # Run configure with default settings
+
           python3 configure.py << EOF
-          
-          
-          
-          
-          
-          
-          
-          
-          
-          
-          EOF
+n
+n
+n
+n
+n
+n
+y
+$ANDROID_NDK_HOME
+21
+EOF
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
-      - name: Build TFLite AAR using official script
+      - name: Build TFLite AAR
         run: |
           cd tensorflow
           export ANDROID_SDK_HOME=$ANDROID_HOME
           export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653
-          
-          # Use TensorFlow's official build script
+
           bash tensorflow/lite/tools/build_aar.sh \
             --target_archs=x86,x86_64,arm64-v8a,armeabi-v7a
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
       - name: Find built AAR files
-        run: |
-          find tensorflow -name "*.aar" -type f
+        run: find tensorflow -name "*.aar" -type f
 
       - name: Upload AAR Files
         uses: actions/upload-artifact@v4
         with:
           name: tflite-aar
-          path: |
-            tensorflow/**/*.aar
+          path: tensorflow/**/*.aar
         if: always()
 
 
-  # -------------------------------------------
-  #  ANDROID AAR BUILD - Alternative CMake method
-  # -------------------------------------------
+  # Windows DLL and CMake build unchanged below
+  # (keeping as-is)
   build-aar-cmake:
     runs-on: ubuntu-latest
     if: always()
@@ -129,7 +120,6 @@ jobs:
         run: |
           cd tensorflow
           
-          # Build for arm64-v8a
           mkdir -p build_android_arm64
           cd build_android_arm64
           
@@ -145,7 +135,6 @@ jobs:
           
           cd ..
           
-          # Build for armeabi-v7a
           mkdir -p build_android_armv7
           cd build_android_armv7
           
@@ -175,9 +164,6 @@ jobs:
         if: always()
 
 
-  # -------------------------------------------
-  #  WINDOWS DLL BUILD (MSVC + CMake)
-  # -------------------------------------------
   build-dll:
     runs-on: windows-latest
 
