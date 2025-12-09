@@ -20,10 +20,10 @@ jobs:
       run: |
         choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
         choco install ninja -y
-        choco install git -y
         
     - name: Clone TensorFlow
       run: |
+        rmdir /s /q tensorflow 2>nul || echo "No existing tensorflow directory"
         git clone https://github.com/tensorflow/tensorflow.git
         cd tensorflow
         git checkout v2.18.0
@@ -31,6 +31,7 @@ jobs:
     - name: Configure TFLite Build
       run: |
         cd tensorflow\tensorflow\lite
+        rmdir /s /q build 2>nul || echo "No existing build directory"
         mkdir build
         cd build
         cmake .. -G "Ninja" ^
@@ -54,14 +55,14 @@ jobs:
         mkdir output
         cd tensorflow\tensorflow\lite\build
         
-        # Check what files exist
+        echo "Looking for built files..."
         dir
         
-        # Copy any DLL or LIB files found
-        copy *.dll ..\..\..\..\output\ 2>nul || echo "No DLLs in root"
-        copy *.lib ..\..\..\..\output\ 2>nul || echo "No LIBs in root"
+        rem Copy any DLL or LIB files
+        copy *.dll ..\..\..\..\output\ 2>nul || echo "No DLLs found in root"
+        copy *.lib ..\..\..\..\output\ 2>nul || echo "No LIBs found in root"
         
-        # Check Release directory
+        rem Check Release directory
         if exist Release (
             cd Release
             copy *.dll ..\..\..\..\..\output\ 2>nul || echo "No DLLs in Release"
@@ -69,12 +70,13 @@ jobs:
             cd ..
         )
         
-        # Copy headers
+        rem Copy headers
         mkdir ..\..\..\..\output\include
         xcopy /E /I ..\c ..\..\..\..\output\include
         
-        # Show output
+        rem Show what we collected
         cd ..\..\..\..\output
+        echo "Output directory contents:"
         dir
         
     - name: Upload Artifacts
