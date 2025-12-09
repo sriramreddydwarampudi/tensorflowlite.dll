@@ -43,7 +43,8 @@ jobs:
           -DTFLITE_ENABLE_GPU=OFF ^
           -DTFLITE_ENABLE_NNAPI=OFF ^
           -DTFLITE_ENABLE_XNNPACK=ON ^
-          -DTFLITE_ENABLE_RUY=ON
+          -DTFLITE_ENABLE_RUY=ON ^
+          -DCMAKE_POLICY_DEFAULT_CMP0000=NEW
         
     - name: Build TFLite C Library
       shell: cmd
