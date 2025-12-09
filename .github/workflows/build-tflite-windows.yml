@@ -2,55 +2,52 @@ name: Build TensorFlow Lite Shared Library
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 jobs:
-  build-tflite:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install GCC-12 and tools
         run: |
           sudo apt update
-          sudo apt install -y cmake ninja-build g++ git wget unzip
+          sudo apt install -y g++-12 gcc-12 cmake ninja-build git
 
-      # Download TensorFlow (only TFLite needed)
+      - name: Set GCC-12 as default
+        run: |
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 50
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 50
+          gcc --version
+          g++ --version
+
       - name: Clone TensorFlow
         run: |
           git clone --depth 1 https://github.com/tensorflow/tensorflow.git
-          ls tensorflow/tensorflow/lite
+          mkdir -p tensorflow/tensorflow/lite/build
 
-      # Create build directory
-      - name: Create build folder
-        run: mkdir -p tensorflow/tensorflow/lite/build
-
-      # Configure CMake
-      - name: Configure TFLite CMake
+      - name: Configure CMake
         run: |
           cd tensorflow/tensorflow/lite/build
           cmake .. \
+            -G Ninja \
             -DTFLITE_ENABLE_C_API=ON \
             -DTFLITE_ENABLE_RUY=ON \
             -DTFLITE_ENABLE_XNNPACK=ON \
             -DTFLITE_USE_FARMHASH=OFF \
-            -DCMAKE_BUILD_TYPE=Release \
-            -G Ninja
+            -DCMAKE_C_COMPILER=gcc-12 \
+            -DCMAKE_CXX_COMPILER=g++-12 \
+            -DCMAKE_BUILD_TYPE=Release
 
-      # Build
-      - name: Build TensorFlow Lite
+      - name: Build
         run: |
           cd tensorflow/tensorflow/lite/build
           ninja
 
-      # Upload built library
-      - name: Upload .so file
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: tflite-linux-so
-          path: |
-            tensorflow/tensorflow/lite/build/*.so
-            tensorflow/tensorflow/lite/build/*.a
+          name: tflite-linux
+          path: tensorflow/tensorflow/lite/build/*.so
