@@ -17,92 +17,65 @@ jobs:
       uses: microsoft/setup-msbuild@v1
       
     - name: Install Tools
-      shell: powershell
       run: |
         choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
         choco install ninja -y
         choco install git -y
         
     - name: Clone TensorFlow
-      shell: powershell
       run: |
         git clone https://github.com/tensorflow/tensorflow.git
         cd tensorflow
         git checkout v2.18.0
         
     - name: Configure TFLite Build
-      shell: powershell
       run: |
-        # Navigate to tflite directory
         cd tensorflow\tensorflow\lite
-        
-        # Create build directory
-        New-Item -ItemType Directory -Force -Path build
-        
-        # Configure CMake
-        cmake -S . -B build `
-          -G "Ninja" `
-          -DCMAKE_BUILD_TYPE=Release `
-          -DBUILD_SHARED_LIBS=ON `
-          -DTFLITE_ENABLE_GPU=OFF `
-          -DTFLITE_ENABLE_NNAPI=OFF `
-          -DTFLITE_ENABLE_XNNPACK=ON `
-          -DTFLITE_ENABLE_RUY=ON `
-          -DTFLITE_BUILD_CC_LIB=ON `
-          -DTFLITE_BUILD_PYTHON_MODULE=OFF `
-          -DTFLITE_BUILD_JAVA_BINDINGS=OFF `
-          -DTFLITE_BUILD_CC_TEST=OFF
+        mkdir build
+        cd build
+        cmake .. -G "Ninja" ^
+          -DCMAKE_BUILD_TYPE=Release ^
+          -DBUILD_SHARED_LIBS=ON ^
+          -DTFLITE_ENABLE_GPU=OFF ^
+          -DTFLITE_ENABLE_NNAPI=OFF ^
+          -DTFLITE_ENABLE_XNNPACK=ON ^
+          -DTFLITE_ENABLE_RUY=ON ^
+          -DTFLITE_BUILD_CC_LIB=ON ^
+          -DTFLITE_BUILD_PYTHON_MODULE=OFF
         
     - name: Build TFLite C Library
-      shell: powershell
       run: |
-        # Build from the same directory
-        cd tensorflow\tensorflow\lite
-        cmake --build build --target tensorflowlite_c --config Release
+        cd tensorflow\tensorflow\lite\build
+        cmake --build . --target tensorflowlite_c
         
-    - name: Collect Build Artifacts
-      shell: powershell
+    - name: Collect Artifacts
+      shell: cmd
       run: |
-        # Create output directory
-        New-Item -ItemType Directory -Force -Path output
+        mkdir output
+        cd tensorflow\tensorflow\lite\build
         
-        # Search for DLL and LIB files
-        $buildDir = "tensorflow\tensorflow\lite\build"
+        # Check what files exist
+        dir
         
-        # Look for DLLs
-        $dllFiles = Get-ChildItem -Path $buildDir -Recurse -Include "*.dll" -File
-        foreach ($file in $dllFiles) {
-            Write-Host "Found DLL: $($file.FullName)"
-            Copy-Item -Path $file.FullName -Destination "output\"
-        }
+        # Copy any DLL or LIB files found
+        copy *.dll ..\..\..\..\output\ 2>nul || echo "No DLLs in root"
+        copy *.lib ..\..\..\..\output\ 2>nul || echo "No LIBs in root"
         
-        # Look for LIBs
-        $libFiles = Get-ChildItem -Path $buildDir -Recurse -Include "*.lib" -File
-        foreach ($file in $libFiles) {
-            Write-Host "Found LIB: $($file.FullName)"
-            Copy-Item -Path $file.FullName -Destination "output\"
-        }
+        # Check Release directory
+        if exist Release (
+            cd Release
+            copy *.dll ..\..\..\..\..\output\ 2>nul || echo "No DLLs in Release"
+            copy *.lib ..\..\..\..\..\output\ 2>nul || echo "No LIBs in Release"
+            cd ..
+        )
         
-        # If no files found, try the Release subdirectory
-        if ((Get-ChildItem -Path output).Count -eq 0) {
-            Write-Host "No files found, checking Release directory..."
-            if (Test-Path "$buildDir\Release") {
-                Get-ChildItem -Path "$buildDir\Release" -Include "*.dll", "*.lib" -File | ForEach-Object {
-                    Copy-Item -Path $_.FullName -Destination "output\"
-                }
-            }
-        }
+        # Copy headers
+        mkdir ..\..\..\..\output\include
+        xcopy /E /I ..\c ..\..\..\..\output\include
         
-        # Copy C API headers
-        $capiDir = "tensorflow\tensorflow\lite\c"
-        if (Test-Path $capiDir) {
-            New-Item -ItemType Directory -Force -Path "output\include"
-            Copy-Item -Path "$capiDir\*.h" -Destination "output\include\" -Recurse
-        }
-        
-        # List what we found
-        Write-Host "Output directory contents:"
-        Get-ChildItem -Path output -Recurse
+        # Show output
+        cd ..\..\..\..\output
+        dir
         
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
