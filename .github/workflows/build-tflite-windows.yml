@@ -45,7 +45,7 @@ jobs:
         cmake --build . --config Release
 
     - name: Upload DLL
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: tflite-dll
         path: build/Release/*.dll
