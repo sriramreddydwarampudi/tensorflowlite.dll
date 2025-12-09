@@ -18,18 +18,25 @@ jobs:
           sudo apt update
           sudo apt install -y openjdk-17-jdk unzip zip python3
 
-      - name: Install Android SDK + NDK
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          api-level: 34
-          ndk-version: 26.1.10909125
-          components: build-tools;34.0.0
 
-      - name: Download Bazelisk
+      - name: Install Android NDK
+        run: |
+          sdkmanager --install "ndk;26.1.10909125"
+          sdkmanager --install "build-tools;34.0.0"
+
+      - name: Set Android Environment Variables
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> $GITHUB_ENV
+
+      - name: Install Bazelisk
         run: |
           curl -L https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 \
-            -o /usr/local/bin/bazel
-          chmod +x /usr/local/bin/bazel
+            -o bazel
+          chmod +x bazel
+          sudo mv bazel /usr/local/bin/bazel
 
       - name: Build TFLite AAR
         run: |
@@ -41,7 +48,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: tensorflow-lite-aar
-          path: bazel-bin/tensorflow/lite/java/libtensorflow-lite.aar
+          path: bazel-bin/tensorflow/lite/java/tensorflow-lite.aar
 
   # ---------------------------------------------------------
   # 2. WINDOWS DLL BUILD
