@@ -1,184 +1,46 @@
-name: Build TensorFlow Lite C DLL
 
-on:
-  workflow_dispatch:
-  push:
-    branches: [ main ]
+import urllib.request
+import zipfile
+import os
 
-jobs:
-  build-tflite-c-dll:
-    runs-on: windows-latest
+print("Downloading pre-built TensorFlow Lite C library for Windows...")
 
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      
-    - name: Setup Visual Studio
-      uses: microsoft/setup-msbuild@v1
-      
-    - name: Install Tools
-      shell: cmd
-      run: |
-        choco install cmake --installargs "ADD_CMAKE_TO_PATH=System" -y
-        choco install ninja -y
-        
-    - name: Clean and Clone TensorFlow
-      shell: cmd
-      run: |
-        if exist tensorflow rmdir /s /q tensorflow
-        git clone https://github.com/tensorflow/tensorflow.git
-        cd tensorflow
-        git checkout v2.18.0
-        
-    - name: Pre-download and Patch PSimd
-      shell: powershell
-      run: |
-        $psimcDir = "tensorflow\tensorflow\lite\c\psimd-source"
-        New-Item -Path $psimcDir -ItemType Directory -Force | Out-Null
-        
-        # Download PSimd
-        Write-Host "Downloading PSimd..."
-        Invoke-WebRequest -Uri "https://github.com/Maratyszcza/psimd/archive/072586a71b55b7f8c584153d223e95687148a900.zip" -OutFile "psimd.zip"
-        Expand-Archive -Path "psimd.zip" -DestinationPath "temp_psimd" -Force
-        
-        # Move contents to expected location
-        $extractedDir = Get-ChildItem -Path "temp_psimd" -Directory | Select-Object -First 1
-        Copy-Item -Path "$($extractedDir.FullName)\*" -Destination $psimcDir -Recurse -Force
-        
-        # Clean up
-        Remove-Item "psimd.zip" -Force
-        Remove-Item "temp_psimd" -Recurse -Force
-        
-        # Patch PSimd CMakeLists.txt
-        $psimcCMake = "$psimcDir\CMakeLists.txt"
-        if (Test-Path $psimcCMake) {
-          $content = Get-Content $psimcCMake -Raw
-          $content = $content -replace 'CMAKE_MINIMUM_REQUIRED\s*\(\s*VERSION\s+2\.\d+\.\d+\s+FATAL_ERROR\s*\)', 'CMAKE_MINIMUM_REQUIRED(VERSION 3.5 FATAL_ERROR)'
-          $content = $content -replace 'CMAKE_MINIMUM_REQUIRED\s*\(\s*VERSION\s+2\.\d+\.\d+\s*\)', 'CMAKE_MINIMUM_REQUIRED(VERSION 3.5)'
-          Set-Content $psimcCMake -Value $content
-          Write-Host "Patched PSimd CMakeLists.txt"
-        }
-        
-    - name: First CMake Configure
-      shell: cmd
-      continue-on-error: true
-      run: |
-        cd tensorflow\tensorflow\lite\c
-        if exist build rmdir /s /q build
-        mkdir build
-        cd build
-        set PSIMD_SOURCE_DIR=%CD%\..\psimd-source
-        cmake .. -G "Ninja" ^
-          -DCMAKE_BUILD_TYPE=Release ^
-          -DBUILD_SHARED_LIBS=ON ^
-          -DTFLITE_ENABLE_GPU=OFF ^
-          -DTFLITE_ENABLE_NNAPI=OFF ^
-          -DTFLITE_ENABLE_XNNPACK=ON ^
-          -DTFLITE_ENABLE_RUY=ON ^
-          -DPSIMD_SOURCE_DIR=%PSIMD_SOURCE_DIR%
-    
-    - name: Patch All Downloaded Dependencies
-      shell: powershell
-      run: |
-        $cmakeFiles = Get-ChildItem -Path "tensorflow\tensorflow\lite\c" -Recurse -Filter "CMakeLists.txt"
-        
-        foreach ($file in $cmakeFiles) {
-          $content = Get-Content $file.FullName -Raw
-          $modified = $false
-          
-          if ($content -match 'CMAKE_MINIMUM_REQUIRED\s*\(\s*VERSION\s+2\.\d+') {
-            $content = $content -replace 'CMAKE_MINIMUM_REQUIRED\s*\(\s*VERSION\s+2\.\d+\.\d+\s+FATAL_ERROR\s*\)', 'CMAKE_MINIMUM_REQUIRED(VERSION 3.5 FATAL_ERROR)'
-            $content = $content -replace 'CMAKE_MINIMUM_REQUIRED\s*\(\s*VERSION\s+2\.\d+\.\d+\s*\)', 'CMAKE_MINIMUM_REQUIRED(VERSION 3.5)'
-            $modified = $true
-          }
-          
-          if ($modified) {
-            Set-Content $file.FullName -Value $content
-            Write-Host "Patched: $($file.FullName)"
-          }
-        }
-        
-        Write-Host "All dependency patching complete"
-        
-    - name: Clean Build Directory
-      shell: powershell
-      run: |
-        $buildPath = "tensorflow\tensorflow\lite\c\build"
-        if (Test-Path $buildPath) {
-          Remove-Item -Path $buildPath -Recurse -Force
-          Write-Host "Removed existing build directory"
-        }
-        New-Item -Path $buildPath -ItemType Directory -Force | Out-Null
-        Write-Host "Created fresh build directory"
-        
-    - name: Final CMake Configure
-      shell: powershell
-      run: |
-        cd tensorflow\tensorflow\lite\c\build
-        $psimcPath = Resolve-Path "..\psimd-source" | Select-Object -ExpandProperty Path
-        
-        Write-Host "PSimd path: $psimcPath"
-        
-        $cmakeArgs = @(
-          "..",
-          "-G", "Ninja",
-          "-DCMAKE_BUILD_TYPE=Release",
-          "-DBUILD_SHARED_LIBS=ON",
-          "-DTFLITE_ENABLE_GPU=OFF",
-          "-DTFLITE_ENABLE_NNAPI=OFF",
-          "-DTFLITE_ENABLE_XNNPACK=ON",
-          "-DTFLITE_ENABLE_RUY=ON",
-          "-DPSIMD_SOURCE_DIR=$psimcPath"
-        )
-        
-        & cmake $cmakeArgs
-        
-        if ($LASTEXITCODE -ne 0) {
-          Write-Error "CMake configuration failed with exit code $LASTEXITCODE"
-          exit $LASTEXITCODE
-        }
-        
-        Write-Host "CMake configuration completed successfully"
-        
-    - name: Build TFLite C Library
-      shell: cmd
-      run: |
-        cd tensorflow\tensorflow\lite\c\build
-        ninja
-        
-    - name: Collect Artifacts
-      shell: cmd
-      run: |
-        mkdir output
-        
-        echo Looking for built files...
-        
-        rem Copy DLL and LIB files from build directory
-        if exist tensorflow\tensorflow\lite\c\build\*.dll (
-            copy tensorflow\tensorflow\lite\c\build\*.dll output\
-        )
-        if exist tensorflow\tensorflow\lite\c\build\*.lib (
-            copy tensorflow\tensorflow\lite\c\build\*.lib output\
-        )
-        
-        rem Check Release subdirectory
-        if exist tensorflow\tensorflow\lite\c\build\Release\*.dll (
-            copy tensorflow\tensorflow\lite\c\build\Release\*.dll output\
-        )
-        if exist tensorflow\tensorflow\lite\c\build\Release\*.lib (
-            copy tensorflow\tensorflow\lite\c\build\Release\*.lib output\
-        )
-        
-        rem Copy headers
-        mkdir output\include
-        xcopy /E /I tensorflow\tensorflow\lite\c\*.h output\include\
-        
-        rem Show output
-        echo Output directory contents:
-        dir output
-        
-    - name: Upload Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: tflite-dll
-        path: output/*
+# TensorFlow provides pre-built libraries
+# You can also build from Bazel which is more reliable
+
+# Method 1: Download from TensorFlow releases (if available)
+# Check: https://github.com/tensorflow/tensorflow/releases
+
+# Method 2: Build using Bazel (most reliable)
+print("\nInstalling Bazelisk...")
+!wget https://github.com/bazelbuild/bazelisk/releases/download/v1.19.0/bazelisk-linux-amd64 -O bazelisk
+!chmod +x bazelisk
+!./bazelisk --version
+
+print("\nCloning TensorFlow...")
+!rm -rf tensorflow
+!git clone --depth 1 --branch v2.18.0 https://github.com/tensorflow/tensorflow.git
+%cd tensorflow
+
+print("\nBuilding with Bazel (this will take 20-30 minutes)...")
+!./bazelisk build -c opt //tensorflow/lite/c:tensorflowlite_c
+
+print("\n=== Locating built library ===")
+!find bazel-bin -name "*tensorflowlite_c*"
+
+# Copy outputs
+!mkdir -p /content/output
+!cp -r bazel-bin/tensorflow/lite/c/* /content/output/ 2>/dev/null || true
+!find /content/output -type f
+
+# For headers
+!mkdir -p /content/output/include
+!cp tensorflow/lite/c/*.h /content/output/include/
+
+print("\n=== Results ===")
+!ls -lh /content/output/
+
+%cd /content
+!tar -czf tensorflowlite_c.tar.gz output/
+from google.colab import files
+files.download('tensorflowlite_c.tar.gz')
