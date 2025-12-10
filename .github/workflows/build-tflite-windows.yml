@@ -1,46 +1,63 @@
 
-import urllib.request
-import zipfile
-import os
+name: Build TensorFlow Lite C Library (Windows)
 
-print("Downloading pre-built TensorFlow Lite C library for Windows...")
+on:
+  workflow_dispatch:
 
-# TensorFlow provides pre-built libraries
-# You can also build from Bazel which is more reliable
+jobs:
+  build-tflite-c:
+	runs-on: ubuntu-latest
+	steps:
+	  - name: Checkout repository
+		uses: actions/checkout@v3
 
-# Method 1: Download from TensorFlow releases (if available)
-# Check: https://github.com/tensorflow/tensorflow/releases
+	  - name: Install dependencies
+		run: |
+		  sudo apt-get update
+		  sudo apt-get install -y wget git tar
 
-# Method 2: Build using Bazel (most reliable)
-print("\nInstalling Bazelisk...")
-!wget https://github.com/bazelbuild/bazelisk/releases/download/v1.19.0/bazelisk-linux-amd64 -O bazelisk
-!chmod +x bazelisk
-!./bazelisk --version
+	  - name: Download Bazelisk
+		run: |
+		  wget https://github.com/bazelbuild/bazelisk/releases/download/v1.19.0/bazelisk-linux-amd64 -O bazelisk
+		  chmod +x bazelisk
+		  ./bazelisk --version
 
-print("\nCloning TensorFlow...")
-!rm -rf tensorflow
-!git clone --depth 1 --branch v2.18.0 https://github.com/tensorflow/tensorflow.git
-%cd tensorflow
+	  - name: Clone TensorFlow
+		run: |
+		  rm -rf tensorflow
+		  git clone --depth 1 --branch v2.18.0 https://github.com/tensorflow/tensorflow.git
 
-print("\nBuilding with Bazel (this will take 20-30 minutes)...")
-!./bazelisk build -c opt //tensorflow/lite/c:tensorflowlite_c
+	  - name: Build TensorFlow Lite C library
+		run: |
+		  cd tensorflow
+		  ../bazelisk build -c opt //tensorflow/lite/c:tensorflowlite_c
 
-print("\n=== Locating built library ===")
-!find bazel-bin -name "*tensorflowlite_c*"
+	  - name: Locate built library
+		run: |
+		  cd tensorflow
+		  find bazel-bin -name "*tensorflowlite_c*"
 
-# Copy outputs
-!mkdir -p /content/output
-!cp -r bazel-bin/tensorflow/lite/c/* /content/output/ 2>/dev/null || true
-!find /content/output -type f
+	  - name: Copy outputs
+		run: |
+		  mkdir -p ${{ github.workspace }}/output
+		  cp -r tensorflow/bazel-bin/tensorflow/lite/c/* ${{ github.workspace }}/output/ 2>/dev/null || true
+		  find ${{ github.workspace }}/output -type f
 
-# For headers
-!mkdir -p /content/output/include
-!cp tensorflow/lite/c/*.h /content/output/include/
+	  - name: Copy headers
+		run: |
+		  mkdir -p ${{ github.workspace }}/output/include
+		  cp tensorflow/tensorflow/lite/c/*.h ${{ github.workspace }}/output/include/
 
-print("\n=== Results ===")
-!ls -lh /content/output/
+	  - name: List results
+		run: |
+		  ls -lh ${{ github.workspace }}/output/
 
-%cd /content
-!tar -czf tensorflowlite_c.tar.gz output/
-from google.colab import files
-files.download('tensorflowlite_c.tar.gz')
+	  - name: Archive output
+		run: |
+		  tar -czf tensorflowlite_c.tar.gz output/
+
+	  - name: Upload artifact
+		uses: actions/upload-artifact@v3
+		with:
+		  name: tensorflowlite_c
+		  path: tensorflowlite_c.tar.gz
