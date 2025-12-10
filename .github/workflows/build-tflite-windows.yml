@@ -127,7 +127,7 @@ jobs:
       shell: cmd
       run: |
         cd tensorflow\tensorflow\lite\c\build
-        cmake --build . --config Release
+        ninja
         
     - name: Collect Artifacts
       shell: cmd
