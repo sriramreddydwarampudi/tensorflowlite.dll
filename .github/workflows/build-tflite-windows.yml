@@ -67,6 +67,7 @@ jobs:
         if exist build rmdir /s /q build
         mkdir build
         cd build
+        set PSIMD_SOURCE_DIR=%CD%\..\psimd-source
         cmake .. -G "Ninja" ^
           -DCMAKE_BUILD_TYPE=Release ^
           -DBUILD_SHARED_LIBS=ON ^
@@ -74,7 +75,7 @@ jobs:
           -DTFLITE_ENABLE_NNAPI=OFF ^
           -DTFLITE_ENABLE_XNNPACK=ON ^
           -DTFLITE_ENABLE_RUY=ON ^
-          -DPSIMD_SOURCE_DIR=D:/a/tensorflowlite.dll/tensorflowlite.dll/tensorflow/tensorflow/lite/c/psimd-source
+          -DPSIMD_SOURCE_DIR=%PSIMD_SOURCE_DIR%
     
     - name: Patch All Downloaded Dependencies
       shell: powershell
@@ -111,17 +112,33 @@ jobs:
         Write-Host "Created fresh build directory"
         
     - name: Final CMake Configure
-      shell: cmd
+      shell: powershell
       run: |
         cd tensorflow\tensorflow\lite\c\build
-        cmake .. -G "Ninja" ^
-          -DCMAKE_BUILD_TYPE=Release ^
-          -DBUILD_SHARED_LIBS=ON ^
-          -DTFLITE_ENABLE_GPU=OFF ^
-          -DTFLITE_ENABLE_NNAPI=OFF ^
-          -DTFLITE_ENABLE_XNNPACK=ON ^
-          -DTFLITE_ENABLE_RUY=ON ^
-          -DPSIMD_SOURCE_DIR=D:/a/tensorflowlite.dll/tensorflowlite.dll/tensorflow/tensorflow/lite/c/psimd-source
+        $psimcPath = Resolve-Path "..\psimd-source" | Select-Object -ExpandProperty Path
+        
+        Write-Host "PSimd path: $psimcPath"
+        
+        $cmakeArgs = @(
+          "..",
+          "-G", "Ninja",
+          "-DCMAKE_BUILD_TYPE=Release",
+          "-DBUILD_SHARED_LIBS=ON",
+          "-DTFLITE_ENABLE_GPU=OFF",
+          "-DTFLITE_ENABLE_NNAPI=OFF",
+          "-DTFLITE_ENABLE_XNNPACK=ON",
+          "-DTFLITE_ENABLE_RUY=ON",
+          "-DPSIMD_SOURCE_DIR=$psimcPath"
+        )
+        
+        & cmake $cmakeArgs
+        
+        if ($LASTEXITCODE -ne 0) {
+          Write-Error "CMake configuration failed with exit code $LASTEXITCODE"
+          exit $LASTEXITCODE
+        }
+        
+        Write-Host "CMake configuration completed successfully"
         
     - name: Build TFLite C Library
       shell: cmd
